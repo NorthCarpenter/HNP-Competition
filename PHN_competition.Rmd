@@ -14,27 +14,32 @@ library(tidyr)
 library(car)
 library(glmnet)
 library(sandwich)
+library(janitor)
 library(patchwork)
+library(catboost)
+library(lubridate)
 ```
 
 Import Training Data
 ```{r}
 #Training Lables
-tran.lab <- read.csv("Training_Set_Lables.csv")
+tran.lab <- read.csv("../HNP-Data/Training_Set_Lables.csv")
 #Training Values
-tran.value <- read.csv("Training_Set_Values.csv")
+tran.value <- read.csv("../HNP-Data/Training_Set_Values.csv")
 ```
 
-First Look Data
+# Data Cleaning
+
+## First Look Data
 ```{r}
 head(tran.lab)
 head(tran.value)
 ```
 
-Joining Data
+## Joining Data
 ```{r}
 # Inner join
-tran.dat <- inner_join(tran.lab, tran.value, by = join_by(id))
+tran.dat <- data.frame(inner_join(tran.lab, tran.value, by = join_by(id)))
 head(tran.dat)
 nrow(tran.dat)
 summary(tran.dat)
@@ -48,15 +53,109 @@ tran.dat %>%
     num_missing = sum(is.na(value) | value == "", na.rm = TRUE),
     num_unique  = n_distinct(value)
   )
+```
 
-missings <- 
 
-# Unique In Each Column
-sapply(tran.dat, unique)
+## Dropping Columns
+```{r}
+# Get all pairs of column names
 
+col_pairs <- combn(names(tran.dat), 2, simplify = FALSE)
+
+pair.matches <- data.frame(pair.1 = character(), 
+                           pair.2 = character(), 
+                           pair.3 = integer())
+
+# Check which pairs have any matching values row-by-row
+for (pair in col_pairs) {
+  matches <- tran.dat[[pair[1]]] == tran.dat[[pair[2]]]
+  if (any(matches, na.rm = TRUE) & sum(matches, na.rm = TRUE) > 10000) {
+    pair.matches <- rbind(pair.matches, data.frame(
+      pair.1 = pair[1], 
+      pair.2 = pair[2], 
+      pair.3 = sum(matches, na.rm = TRUE)
+    ))
+  }
+}
+
+pair.matches
+
+# Looking at Specific Pairings of Variables
+#3 Levels of Source Specification
+#tabyl(tran.dat, source)
+#tabyl(tran.dat, source_type)
+#tabyl(tran.dat, source_class)
+# Three levels of Extraction type
+#tabyl(tran.dat, extraction_type)
+#tabyl(tran.dat, extraction_type_group)
+#tabyl(tran.dat, extraction_type_class)
+# Two levels of waterpoint_type
+#tabyl(tran.dat, waterpoint_type)
+#tabyl(tran.dat, waterpoint_type_group)
+# Water quality vs water group
+#tabyl(tran.dat, quality_group)
+#tabyl(tran.dat, water_quality)
+#Very Few numbers beside 0 in private
+#(tran.dat, num_private)
 
 # List of Columns to Drop
-drop <- c("recorded_by", # Only has one unique value in the whole column
+to.drop <- c("recorded_by", # Only has one unique value in the whole column
+          "payment_type", # same as Payment but written in a different way
+          "quantity_group", # Exactly the same as quality
+          "scheme_name", # Has over 47% Missing Variables
+          "waterpoint_type_group", # Almost identical as no type but groups a 10% cat with a 40% cat
+          "extraction_type_group", # Almost identical to extraction_type
+          "quality_group" # Almost identical to water_quality
           )
 ```
+
+Drops
+```{r}
+tran.dat <- tran.dat %>% select(-all_of(to.drop))
+```
+
+## Fixing Remaining Variable
+```{r}
+head(tran.dat)
+# I will need to fix:
+# date_recoreded
+# all the chrs need to be categorical
+
+# Fix Date
+tran.dat$date_recorded <- as.Date(tran.dat$date_recorded, format = "%Y-%m-%d")
+tran.dat <- tran.dat %>%
+  mutate(
+    year_recorded  = year(date_recorded),
+    month_recorded = month(date_recorded)
+  ) %>%
+  select(-date_recorded)
+
+# All Categories
+tran.dat <- tran.dat %>% mutate(across(where(is.character), as.factor))
+
+str(tran.dat)
+```
+
+Take a Look at Outcome Data
+```{r}
+tabyl(tran.dat, status_group)
+```
+
+
+# Modeling
+
+I will be using CatBoost since this is a highly categorical classification problem.
+
+Set Up Data
+```{r}
+# List of 0 based factor indicies
+fac.Indicies <- as.numeric(as.factor(tran.dat$status_group)) - 1
+
+# Drop the ID col
+tran.dat <- tran.dat %>% select(c(-id, -status_group))
+
+# Set up Catboost dataset
+train_pool <- catboost.load_pool(data = tran.dat, label = fac.Indicies)
+```
+
 
