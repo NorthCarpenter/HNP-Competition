@@ -1,0 +1,62 @@
+---
+title: "PHN Modeling Competition"
+author: "North Carpenter"
+date: "2026-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(car)
+library(glmnet)
+library(sandwich)
+library(patchwork)
+```
+
+Import Training Data
+```{r}
+#Training Lables
+tran.lab <- read.csv("Training_Set_Lables.csv")
+#Training Values
+tran.value <- read.csv("Training_Set_Values.csv")
+```
+
+First Look Data
+```{r}
+head(tran.lab)
+head(tran.value)
+```
+
+Joining Data
+```{r}
+# Inner join
+tran.dat <- inner_join(tran.lab, tran.value, by = join_by(id))
+head(tran.dat)
+nrow(tran.dat)
+summary(tran.dat)
+
+# Count NAs
+tran.dat %>%
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(everything(), names_to = "column", values_to = "value") %>%
+  group_by(column) %>%
+  summarise(
+    num_missing = sum(is.na(value) | value == "", na.rm = TRUE),
+    num_unique  = n_distinct(value)
+  )
+
+missings <- 
+
+# Unique In Each Column
+sapply(tran.dat, unique)
+
+
+# List of Columns to Drop
+drop <- c("recorded_by", # Only has one unique value in the whole column
+          )
+```
+
