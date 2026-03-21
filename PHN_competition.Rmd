@@ -141,6 +141,37 @@ Take a Look at Outcome Data
 tabyl(tran.dat, status_group)
 ```
 
+Test Data Prep
+```{r}
+test.dat <- read.csv("../HNP-Data/Training_Set_Values.csv")
+head(test.dat)
+```
+
+```{r}
+test.labels <- test.dat %>% select(c(-id, -status_group)) # same inital state as training data
+test.values <- test.dat %>% select(c(id, status_group)) # same as intial stae of training lables
+```
+
+Replicating preprossesing steps
+```{r}
+# Test Data
+test.Indicies <- as.numeric(as.factor(test.values$status_group)) - 1
+
+# Training Data
+test.labels <- test.labels %>% select(-all_of(to.drop)) # Drop same var
+
+test.labels$date_recorded <- as.Date(test.labels$date_recorded, format = "%Y-%m-%d") # Split date up
+test.labels <- test.labels %>%
+  mutate(
+    year_recorded  = year(date_recorded),
+    month_recorded = month(date_recorded)
+  ) %>%
+  select(-date_recorded)
+
+# All Categories
+test.labels <- test.labels %>% mutate(across(where(is.character), as.factor)) # Chr to factors
+```
+
 
 # Modeling
 
@@ -158,4 +189,86 @@ tran.dat <- tran.dat %>% select(c(-id, -status_group))
 train_pool <- catboost.load_pool(data = tran.dat, label = fac.Indicies)
 ```
 
+
+Hyperperamiter Search
+```{r}
+learning_rates <- c(0.001, 0.01, 0.05, 0.1)
+depths <- c(6, 10)
+n_folds <- 5
+
+results <- data.frame(lr = numeric(), depth = numeric(), avg_accuracy = numeric())
+
+for (lr in learning_rates) {
+  for (d in depths) {
+    
+    cv_results <- catboost.cv(
+      pool = train_pool,
+      params = list(
+        loss_function = "MultiClass",
+        eval_metric = "Accuracy",
+        learning_rate = lr,
+        depth = d,
+        iterations = 1000,
+        logging_level = "Silent"  # suppress the noisy logger
+      ),
+      fold_count = n_folds
+    )
+    
+    # Pull the best average accuracy across folds
+    avg_acc <- max(cv_results$test.Accuracy.mean)
+    
+    cat("LR:", lr, "| Depth:", d, "| Avg Accuracy:", avg_acc, "\n")
+    
+    results <- rbind(results, data.frame(lr = lr, depth = d, avg_accuracy = avg_acc))
+  }
+}
+
+# See best combo
+results[which.max(results$avg_accuracy), ]
+```
+
+Save Best Model(s)
+```{r}
+best.mod.1 <- catboost.cv(
+  pool = train_pool,
+  params = list(
+    loss_function = "MultiClass",
+    eval_metric = "Accuracy",
+    use_best_model = TRUE,
+    learning_rate = 0.05,
+    depth = 10,
+    iterations = 1000,
+    logging_level = "Silent"  # suppress the noisy logger
+  ),
+  fold_count = n_folds
+)
+
+best.mod.2 <- catboost.cv(
+  pool = train_pool,
+  params = list(
+    loss_function = "MultiClass",
+    eval_metric = "Accuracy",
+    use_best_model = TRUE,
+    learning_rate = 0.05,
+    depth = 8,
+    iterations = 1000,
+    logging_level = "Silent"  # suppress the noisy logger
+  ),
+  fold_count = n_folds
+)
+
+best.mod.3 <- catboost.cv(
+  pool = train_pool,
+  params = list(
+    loss_function = "MultiClass",
+    eval_metric = "Accuracy",
+    use_best_model = TRUE,
+    learning_rate = 0.06,
+    depth = 10,
+    iterations = 1000,
+    logging_level = "Silent"  # suppress the noisy logger
+  ),
+  fold_count = n_folds
+)
+```
 
